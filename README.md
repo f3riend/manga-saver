@@ -1,8 +1,7 @@
 # manga-saver
 
 
-**Manga Link:** <br>
-![Manga Link](https://trmangaoku.com/manga/)
+< a href="https://trmangaoku.com/manga/"> Used manga link </a>
 
 
 #### Türkçe: 
