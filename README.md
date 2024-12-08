@@ -1,6 +1,10 @@
 # manga-saver
 
 
+**Manga Link:** <br>
+![Manga Link](https://trmangaoku.com/manga/)
+
+
 #### Türkçe: 
 Mangalarımı bu site üzerinden okuyorum. Ancak, sizler kod üzerinde birkaç değişiklik yaparak, bu aracın diğer sitelerde de çalışmasını sağlayabilirsiniz. Bu projeyi hayata geçirmemin en temel nedeni, internetsiz kaldığım zamanlardaki can sıkıntımı bir nebze olsun azaltacak kaynaklar toplayabilmemdir. Bu, benim çocukluğumdan kalma bir alışkanlıktır. Bu araç ile siz de mangalarınızı, benim gibi depolayabilir ve daha sonra tekrar okumak için saklayabilirsiniz.
 
