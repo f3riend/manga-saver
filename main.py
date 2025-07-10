@@ -1,95 +1,274 @@
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.service import Service as ChromeService
-from webdriver_manager.chrome import ChromeDriverManager
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver import ActionChains
+from crawl4ai import AsyncWebCrawler
 from weasyprint import HTML
-from time import sleep
+from fastapi import FastAPI,HTTPException
+from datetime import datetime
+from typing import List, Dict
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from pydantic import BaseModel
+import uvicorn
+import asyncio
 import os
-
-LINK = "https://trmangaoku.com/manga/blue-lock/bolum-215/"
-
-
-"""
-Türkçe: 
-Mangalarımı bu site üzerinden okuyorum. Ancak, sizler kod üzerinde birkaç değişiklik yaparak, bu aracın diğer sitelerde de çalışmasını sağlayabilirsiniz. Bu projeyi hayata geçirmemin en temel nedeni, internetsiz kaldığım zamanlardaki can sıkıntımı bir nebze olsun azaltacak kaynaklar toplayabilmemdir. Bu, benim çocukluğumdan kalma bir alışkanlıktır. Bu araç ile siz de mangalarınızı, benim gibi depolayabilir ve daha sonra tekrar okumak için saklayabilirsiniz.
-
-English:
-I read my manga on this site, but you can make a few changes to the code to make this tool work on other sites as well. The main reason why I started this project is to collect resources that will help me alleviate some of my boredom when I am without internet. This is a habit I have from my childhood. With this tool, you too can store your manga like I did and save them to read again later.
-
-"""
+import re
 
 
-options = Options()
-options.add_experimental_option("detach", True)  
-options.add_experimental_option("excludeSwitches", ["enable-automation"])  
-options.add_experimental_option('useAutomationExtension', False)  
-options.add_argument("--disable-blink-features=AutomationControlled")  
-options.add_argument("--disable-popup-blocking")  
-options.add_argument("--disable-save-password-bubble")  
-options.add_argument("--disable-notifications")  
-options.add_argument("--incognito")  
-options.add_argument("--start-maximized") 
-options.add_argument("--headless")
-driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()), options=options)
 
-driver.get(LINK)
+app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-try:
+
+
+
+
+
+class Manga(BaseModel):
+    link: str
+
+
+
+@app.post("/")
+async def main(manga: Manga):
+    try:
+        name,chapter,fullname = extract_informations(manga.link)
+        await createManga(fullname,name,manga.link)
+        return {"response": f"{fullname} saved"}
+    except:
+        return {"response": "Something went wrong"}
+
+
+
+
+async def createManga(name, folder, link):
+    # Folder kontrolü ve oluşturma
+    if not os.path.exists(folder):
+        os.makedirs(folder)
     
-    WebDriverWait(driver, 15).until(
-        EC.presence_of_all_elements_located((By.CSS_SELECTOR, ".page-break.no-gaps"))
-    )
-
-    actions = ActionChains(driver)
-
-    driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-    
-    
-    elements = driver.find_elements(By.CSS_SELECTOR, ".page-break.no-gaps")
-
-    images = []
-    
-    
-    for element in elements:
-        image = element.find_element(By.TAG_NAME, "img")  
-        image_url = image.get_attribute("src")  
-        images.append(image_url)
-    
-
-    print("Please don't use . in manga name")
-    mangaName = input("Enter manga name: ") + ".html"
-    pdfName = mangaName.replace(".html", ".pdf")
-
-    
-    with open(mangaName, "w", encoding="utf-8") as file:
-        file.write("<!DOCTYPE html>\n")
-        file.write("<html lang='en'>\n")
-        file.write("<head>\n")
-        file.write("<meta charset='UTF-8'>\n")
-        file.write("<meta name='viewport' content='width=device-width, initial-scale=1.0'>\n")
-        file.write("<title>Manga Images</title>\n")
-        file.write("</head>\n")
-        file.write("<body>\n")
+    async with AsyncWebCrawler() as crawler:
+        result = await crawler.arun(link)
+        html = result.cleaned_html
+        html5 = f"""
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>{name}</title>
+        """
         
-        for image_url in images:
-            file.write(f"<img src='{image_url}' alt='Manga Image' style='width:100%;'><br>\n")
+        img_urls = re.findall(r'<img[^>]+src=["\']([^"\']+)["\']', html)
+        for image in img_urls:
+            if "data" in image:
+                img = f"<img src='{image}' style='width:100%;'> <br> \n"
+                html5 += img
         
-        file.write("</body>\n")
-        file.write("</html>\n")
+        html5 += "</head>\n<body></body></html>"
+        
+        # Dosya yollarını folder ile birleştir
+        html_path = os.path.join(folder, f"{name}.html")
+        pdf_path = os.path.join(folder, f"{name}.pdf")
+        
+        with open(html_path, "w") as file:  # "x" yerine "w" kullan
+            file.write(html5)
+        
+        HTML(html_path).write_pdf(pdf_path)
+        os.remove(html_path)
 
-    
-    
-    sleep(15) # wait for images to load becaause your internet connection can be slow , this is an garanty way to make sure images are loaded
 
-    HTML(mangaName).write_pdf(pdfName)
-    os.remove(mangaName)
-    
-    
-except Exception as e:
-    print(f"Hata oluştu: {e}")
-finally:
-    driver.quit()
+def extract_informations(link):
+    parts = link.strip("/").split("/")
+    name = parts[4] if len(parts) > 4 else "unknown"
+    episode = parts[5] if len(parts) > 5 and parts[5] else name
+    fullname = f"{name} - {episode}"
+
+    return name, episode, fullname
+
+
+
+
+
+
+
+
+# PDF okuma endpoint'leri
+@app.get("/read/{series_name}/{chapter_name}")
+async def read_chapter(series_name: str, chapter_name: str):
+    """PDF dosyasını okuma için döndür"""
+    try:
+        file_path = os.path.join(series_name, chapter_name)
+        
+        if not os.path.exists(file_path):
+            raise HTTPException(status_code=404, detail="Bölüm bulunamadı")
+        
+        if not chapter_name.endswith('.pdf'):
+            raise HTTPException(status_code=400, detail="Sadece PDF dosyaları okunabilir")
+        
+        return FileResponse(
+            file_path,
+            media_type='application/pdf',
+            headers={"Content-Disposition": f"inline; filename={chapter_name}"}
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/download/{series_name}/{chapter_name}")
+async def download_chapter(series_name: str, chapter_name: str):
+    """PDF dosyasını indirme için döndür"""
+    try:
+        file_path = os.path.join(series_name, chapter_name)
+        
+        if not os.path.exists(file_path):
+            raise HTTPException(status_code=404, detail="Bölüm bulunamadı")
+        
+        if not chapter_name.endswith('.pdf'):
+            raise HTTPException(status_code=400, detail="Sadece PDF dosyaları indirilebilir")
+        
+        return FileResponse(
+            file_path,
+            media_type='application/pdf',
+            filename=chapter_name,
+            headers={"Content-Disposition": f"attachment; filename={chapter_name}"}
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Arayüz için ekstra fonksiyonlar
+@app.get("/series")
+async def get_series_list():
+    """Mevcut manga serilerini listele"""
+    try:
+        if not os.path.exists("."):
+            return []
+        
+        series_list = []
+        for item in os.listdir("."):
+            if os.path.isdir(item) and not item.startswith('.'):
+                chapter_count = len([f for f in os.listdir(item) if f.endswith('.pdf')])
+                if chapter_count > 0:  # Sadece PDF'i olan klasörleri göster
+                    series_list.append({
+                        "name": item,
+                        "chapter_count": chapter_count,
+                        "last_modified": datetime.fromtimestamp(os.path.getmtime(item)).strftime("%Y-%m-%d %H:%M")
+                    })
+        
+        return sorted(series_list, key=lambda x: x["last_modified"], reverse=True)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/series/{series_name}/chapters")
+async def get_chapters_in_series(series_name: str):
+    """Serideki bölümleri listele"""
+    try:
+        if not os.path.exists(series_name):
+            raise HTTPException(status_code=404, detail="Seri bulunamadı")
+        
+        chapters = []
+        for file in os.listdir(series_name):
+            if file.endswith('.pdf'):
+                file_path = os.path.join(series_name, file)
+                file_size = os.path.getsize(file_path)
+                chapters.append({
+                    "name": file,
+                    "size": f"{file_size / 1024 / 1024:.2f} MB",
+                    "date": datetime.fromtimestamp(os.path.getmtime(file_path)).strftime("%Y-%m-%d %H:%M")
+                })
+        
+        return sorted(chapters, key=lambda x: x["name"])
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/series/{series_name}/chapters/{chapter_name}")
+async def delete_chapter(series_name: str, chapter_name: str):
+    """Bölüm sil"""
+    try:
+        file_path = os.path.join(series_name, chapter_name)
+        
+        if not os.path.exists(file_path):
+            raise HTTPException(status_code=404, detail="Bölüm bulunamadı")
+        
+        if not chapter_name.endswith('.pdf'):
+            raise HTTPException(status_code=400, detail="Sadece PDF dosyaları silinebilir")
+        
+        os.remove(file_path)
+        
+        # Klasör boşsa sil
+        if len(os.listdir(series_name)) == 0:
+            os.rmdir(series_name)
+            return {"response": f"{chapter_name} silindi ve {series_name} klasörü boş olduğu için silindi"}
+        
+        return {"response": f"{chapter_name} silindi"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/series/{series_name}")
+async def delete_series(series_name: str):
+    """Seriyi tamamen sil"""
+    try:
+        if not os.path.exists(series_name):
+            raise HTTPException(status_code=404, detail="Seri bulunamadı")
+        
+        import shutil
+        shutil.rmtree(series_name)
+        return {"response": f"{series_name} serisi tamamen silindi"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/series/{series_name}/open")
+async def open_series_folder(series_name: str):
+    """Seri klasörünü dosya yöneticisinde aç"""
+    try:
+        if not os.path.exists(series_name):
+            raise HTTPException(status_code=404, detail="Seri bulunamadı")
+        
+        import subprocess
+        import platform
+        
+        if platform.system() == "Windows":
+            subprocess.run(["explorer", os.path.abspath(series_name)])
+        elif platform.system() == "Darwin":  # macOS
+            subprocess.run(["open", os.path.abspath(series_name)])
+        else:  # Linux
+            subprocess.run(["xdg-open", os.path.abspath(series_name)])
+        
+        return {"response": f"{series_name} klasörü açıldı"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/stats")
+async def get_stats():
+    """Genel istatistikler"""
+    try:
+        total_series = 0
+        total_chapters = 0
+        total_size = 0
+        
+        for item in os.listdir("."):
+            if os.path.isdir(item) and not item.startswith('.'):
+                chapter_count = 0
+                for file in os.listdir(item):
+                    if file.endswith('.pdf'):
+                        chapter_count += 1
+                        total_size += os.path.getsize(os.path.join(item, file))
+                
+                if chapter_count > 0:
+                    total_series += 1
+                    total_chapters += chapter_count
+        
+        return {
+            "total_series": total_series,
+            "total_chapters": total_chapters,
+            "total_size": f"{total_size / 1024 / 1024:.2f} MB"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+        
+
+
+
+if __name__ == "__main__":
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
