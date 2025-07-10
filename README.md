@@ -1,7 +1,7 @@
 # Advanced Manga Saver
 
 **Reason for development:**
-I read my manga on trmangaoku.com. However, you can make a few changes to the code to make this tool work on other sites as well. The main reason why I started this project is to collect resources that will help me alleviate some of my boredom when I am without internet. This is a habit I have from my childhood. With this tool, you too can store your manga like I did and save them to read again later.
+I read my manga on <a href="https://trmangaoku.com/" alt="blank">trmangaoku.com</a> However, you can make a few changes to the code to make this tool work on other sites as well. The main reason why I started this project is to collect resources that will help me alleviate some of my boredom when I am without internet. This is a habit I have from my childhood. With this tool, you too can store your manga like I did and save them to read again later.
 
 ### New additions
 In the previous version of the code I was using selenium, but I updated the code and used **crawl4ai** instead. This way I added more features and you can integrate it to your own manga sites by making small changes.
